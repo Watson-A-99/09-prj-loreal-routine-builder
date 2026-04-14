@@ -19,6 +19,8 @@ let currentRoutineText = "";
 let followUpThread = [];
 let isThinking = false;
 let currentRoutineId = null;
+let routineGenerationStatusText = "";
+let routineStatusIntervalId = null;
 
 /* Show initial placeholder until user selects a category */
 productsContainer.innerHTML = `
@@ -178,7 +180,7 @@ function getAiConfig() {
   if (openAiApiKey) {
     return {
       mode: "openai",
-      url: "https://api.openai.com/v1/chat/completions",
+      url: "https://api.openai.com/v1/responses",
       apiKey: openAiApiKey,
     };
   }
@@ -206,8 +208,9 @@ async function requestAiResponse(messages, selectedProductsData) {
         Authorization: `Bearer ${aiConfig.apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o",
-        messages,
+        model: "gpt-5-mini",
+        tools: [{ type: "web_search" }],
+        input: messages,
       }),
     });
   } else {
@@ -225,10 +228,38 @@ async function requestAiResponse(messages, selectedProductsData) {
   }
 
   if (!response.ok) {
-    throw new Error(`AI request failed with status ${response.status}`);
+    let errorDetails = "";
+
+    try {
+      const errorData = await response.json();
+      errorDetails = errorData.error?.message || JSON.stringify(errorData);
+    } catch {
+      errorDetails = await response.text();
+    }
+
+    throw new Error(
+      `AI request failed with status ${response.status}${errorDetails ? `: ${errorDetails}` : ""}`,
+    );
   }
 
   const data = await response.json();
+
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text;
+  }
+
+  if (Array.isArray(data.output)) {
+    const textParts = data.output
+      .flatMap((item) => item.content || [])
+      .filter(
+        (item) => item.type === "output_text" && typeof item.text === "string",
+      )
+      .map((item) => item.text);
+
+    if (textParts.length > 0) {
+      return textParts.join("");
+    }
+  }
 
   if (data.choices && data.choices[0] && data.choices[0].message) {
     return data.choices[0].message.content;
@@ -246,12 +277,12 @@ async function requestRoutineFromAi(selectedProductsData) {
   const systemMessage = {
     role: "system",
     content:
-      "You are a friendly skincare and beauty routine assistant.Use umojis where applicable in a human-like fashion.Build routines using only products provided by the user. Do not invent or add products not included in the provided JSON. Do not answer non beauty/skincare related questions on clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products.",
+      "You are a friendly skincare and beauty routine assistant. Use emojis where applicable in a human-like fashion. Build routines using only products provided by the user. Use web search for approximate product pricing. Do not invent or add products not included in the provided JSON. Do not answer non beauty/skincare related questions on clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products. No redundant information",
   };
 
   const userMessage = {
     role: "user",
-    content: `Create a simple daily routine using ONLY these selected products.\n\nSelected products JSON:\n${JSON.stringify(selectedProductsData, null, 2)}\n\nReturn a beginner-friendly routine with sections for Morning, Evening, and Why this order works.`,
+    content: `Create a simple daily routine using ONLY these selected products.\n\nSelected products JSON:\n${JSON.stringify(selectedProductsData, null, 2)}\n\nUse web search to verify current product details, price estimates if available, and any important up-to-date guidance. Return a beginner-friendly routine and explainWhy this order works,`,
   };
 
   return requestAiResponse([systemMessage, userMessage], selectedProductsData);
@@ -269,8 +300,40 @@ function escapeHtml(value) {
 function formatRoutineTextAsHtml(text) {
   const escapedText = escapeHtml(text);
 
+  const makeSafeExternalLink = (url, label = url) =>
+    `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+
+  const linkifyInlineText = (value) => {
+    const placeholders = [];
+
+    // Convert markdown-style links first: [Label](https://example.com)
+    const withMarkdownLinks = value.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      (_, label, url) => {
+        const token = `__AI_LINK_${placeholders.length}__`;
+        placeholders.push(makeSafeExternalLink(url, label));
+        return token;
+      },
+    );
+
+    // Convert plain URLs in AI output to clickable links.
+    const withBareLinks = withMarkdownLinks.replace(
+      /(^|[\s(>])(https?:\/\/[^\s<]+)/g,
+      (_, prefix, rawUrl) => {
+        const url = rawUrl.replace(/[),.;!?]+$/, "");
+        const trailing = rawUrl.slice(url.length);
+        return `${prefix}${makeSafeExternalLink(url)}${trailing}`;
+      },
+    );
+
+    return placeholders.reduce(
+      (acc, link, index) => acc.replace(`__AI_LINK_${index}__`, link),
+      withBareLinks,
+    );
+  };
+
   const formatInline = (value) =>
-    value.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    linkifyInlineText(value.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"));
 
   const lines = escapedText.split("\n");
   const htmlParts = [];
@@ -339,6 +402,12 @@ function formatRoutineTextAsHtml(text) {
 function renderChatWindow() {
   const sections = [];
 
+  if (routineGenerationStatusText) {
+    sections.push(
+      `<p class="chat-status-message">${escapeHtml(routineGenerationStatusText)}</p>`,
+    );
+  }
+
   if (currentRoutineText) {
     sections.push(
       `<div class="routine-output">${formatRoutineTextAsHtml(currentRoutineText)}</div>`,
@@ -372,6 +441,39 @@ function renderChatWindow() {
 
   chatWindow.innerHTML = sections.join("");
   chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+function startRoutineGenerationStatus() {
+  const statusMessages = [
+    "Generating your routine...",
+    "Reviewing selected products...",
+    "Fetching up-to-date product details...",
+    "Fetching current prices...",
+    "Finalizing your personalized routine...",
+  ];
+
+  let messageIndex = 0;
+  routineGenerationStatusText = statusMessages[messageIndex];
+  renderChatWindow();
+
+  if (routineStatusIntervalId) {
+    clearInterval(routineStatusIntervalId);
+  }
+
+  routineStatusIntervalId = setInterval(() => {
+    messageIndex = (messageIndex + 1) % statusMessages.length;
+    routineGenerationStatusText = statusMessages[messageIndex];
+    renderChatWindow();
+  }, 5000);
+}
+
+function stopRoutineGenerationStatus() {
+  if (routineStatusIntervalId) {
+    clearInterval(routineStatusIntervalId);
+    routineStatusIntervalId = null;
+  }
+
+  routineGenerationStatusText = "";
 }
 
 /* Return safe, user-friendly chat errors */
@@ -559,7 +661,7 @@ generateRoutineButton.addEventListener("click", async () => {
   currentRoutineText = "";
   followUpThread = [];
   currentRoutineId = null;
-  renderChatWindow();
+  startRoutineGenerationStatus();
 
   try {
     const routineText = await requestRoutineFromAi(selectedProductsData);
@@ -574,6 +676,7 @@ generateRoutineButton.addEventListener("click", async () => {
       },
     ];
   } finally {
+    stopRoutineGenerationStatus();
     renderChatWindow();
     generateRoutineButton.disabled = false;
     generateRoutineButton.innerHTML =
@@ -610,7 +713,7 @@ chatForm.addEventListener("submit", async (e) => {
     const systemMessage = {
       role: "system",
       content:
-        "You are a friendly skincare and beauty routine assistant. Answer follow-up questions using the selected products and existing routine context. Keep answers concise and beginner-friendly.",
+        "You are a friendly skincare and beauty routine assistant. Answer follow-up questions using the selected products, existing routine context, and web search for current product or routine information when helpful. Keep answers concise and beginner-friendly.",
     };
 
     const contextMessage = {

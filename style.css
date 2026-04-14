@@ -75,10 +75,15 @@ body {
   padding: 20px;
   font-size: 18px;
   line-height: 1.5;
-  height: 400px;
+  height: 500px;
   overflow-y: auto;
   background: #fafafa;
   margin-bottom: 20px;
+}
+
+.chat-status-message {
+  color: #666;
+  font-weight: 500;
 }
 
 .routine-output {
@@ -136,6 +141,20 @@ body {
 
 .chat-bubble .routine-list li {
   margin-bottom: 20px;
+}
+
+.chat-bubble a {
+  color: #f4c95d;
+  text-decoration: underline;
+}
+
+.chat-bubble a:hover {
+  color: #ffd56b;
+}
+
+.routine-output a {
+  color: #0a66c2;
+  text-decoration: underline;
 }
 
 .chat-bubble.thinking {
@@ -673,12 +692,14 @@ body {
 
 .selected-products-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   margin-top: 20px;
 }
 
 .generate-btn {
-  flex: 1;
+  width: 100%;
   padding: 16px;
   font-size: 18px;
   font-weight: 500;
@@ -688,6 +709,7 @@ body {
   border-radius: 8px;
   cursor: pointer;
   transition: border-color 0.2s ease;
+  margin-bottom: 20px;
 }
 
 .generate-btn:hover {
@@ -699,25 +721,22 @@ body {
 }
 
 .clear-all-btn {
-  flex: 1;
-  padding: 16px;
-  font-size: 18px;
+  padding: 0;
+  font-size: 13px;
   font-weight: 500;
-  color: #fff;
-  background: #666;
-  border: 5px solid transparent;
-  border-radius: 8px;
+  color: #666;
+  background: none;
+  border: none;
   cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.2s ease;
 }
 
 .clear-all-btn:hover {
-  background: #888;
-  border-color: #e3a535;
+  color: #ff003b;
 }
 
 .clear-all-btn i {
-  margin-right: 8px;
+  margin-right: 6px;
 }
