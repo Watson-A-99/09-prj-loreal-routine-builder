@@ -5,10 +5,13 @@ const selectedProductsList = document.getElementById("selectedProductsList");
 const generateRoutineButton = document.getElementById("generateRoutine");
 const chatForm = document.getElementById("chatForm");
 const chatWindow = document.getElementById("chatWindow");
+const savedRoutinesList = document.getElementById("savedRoutinesList");
 
 let allProducts = [];
 const selectedProducts = new Map();
 let activeModalProductId = null;
+const SAVED_ROUTINES_KEY = "lorealSavedRoutines";
+const MAX_SAVED_ROUTINES = 10;
 
 /* Show initial placeholder until user selects a category */
 productsContainer.innerHTML = `
