@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -46,20 +46,20 @@
       <div class="selected-products">
         <h2>Selected Products</h2>
         <div id="selectedProductsList"></div>
-        <button id="generateRoutine" class="generate-btn">
-          <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Routine
-        </button>
+        <div class="selected-products-actions">
+          <button id="generateRoutine" class="generate-btn">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Routine
+          </button>
+          <button id="clearAllProducts" class="clear-all-btn">
+            <i class="fa-solid fa-trash-can"></i> Clear All
+          </button>
+        </div>
       </div>
 
       <!------- Chat Area ------->
       <section class="chatbox">
         <h2>Let's Build Your Routine</h2>
         <div id="chatWindow" class="chat-window"></div>
-
-        <div class="saved-routines">
-          <h3>Saved Routines</h3>
-          <div id="savedRoutinesList" class="saved-routines-list"></div>
-        </div>
 
         <form id="chatForm" class="chat-form">
           <label for="userInput" class="visually-hidden">Message</label>
@@ -76,6 +76,11 @@
             <span class="visually-hidden">Send</span>
           </button>
         </form>
+
+        <div class="saved-routines">
+          <h3>Saved Routines</h3>
+          <div id="savedRoutinesList" class="saved-routines-list"></div>
+        </div>
       </section>
 
       <!------- Footer Links ------->

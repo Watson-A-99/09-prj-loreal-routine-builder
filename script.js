@@ -3,7 +3,9 @@ const categoryFilter = document.getElementById("categoryFilter");
 const productsContainer = document.getElementById("productsContainer");
 const selectedProductsList = document.getElementById("selectedProductsList");
 const generateRoutineButton = document.getElementById("generateRoutine");
+const clearAllProductsButton = document.getElementById("clearAllProducts");
 const chatForm = document.getElementById("chatForm");
+const userInput = document.getElementById("userInput");
 const chatWindow = document.getElementById("chatWindow");
 const savedRoutinesList = document.getElementById("savedRoutinesList");
 
@@ -12,7 +14,11 @@ const selectedProducts = new Map();
 let activeModalProductId = null;
 const SAVED_ROUTINES_KEY = "lorealSavedRoutines";
 const SELECTED_PRODUCTS_KEY = "lorealSelectedProductIds";
-const MAX_SAVED_ROUTINES = 10;
+const MAX_SAVED_ROUTINES = 5;
+let currentRoutineText = "";
+let followUpThread = [];
+let isThinking = false;
+let currentRoutineId = null;
 
 /* Show initial placeholder until user selects a category */
 productsContainer.innerHTML = `
@@ -181,7 +187,7 @@ function getAiConfig() {
 }
 
 /* Call AI and return text response */
-async function requestRoutineFromAi(selectedProductsData) {
+async function requestAiResponse(messages, selectedProductsData) {
   const aiConfig = getAiConfig();
 
   if (!aiConfig) {
@@ -190,18 +196,6 @@ async function requestRoutineFromAi(selectedProductsData) {
     );
   }
 
-  const systemMessage = {
-    role: "system",
-    content:
-      "You are a friendly skincare and beauty routine assistant. Use emojis where applicable. Number the steps for the user. Build routines using only products provided by the user. Do not invent or add products not included in the provided JSON. If a user asks for a product not in the JSON, respond with 'I can only create routines using the products you've selected.' do not answer anything not beauty related,and guid ehe user back on track'",
-  };
-
-  const userMessage = {
-    role: "user",
-    content: `Create a simple daily routine using ONLY these selected products.\n\nSelected products JSON:\n${JSON.stringify(selectedProductsData, null, 2)}\n\nReturn a beginner-friendly routine with sections for Morning, Evening, and Why this order works.`,
-  };
-
-  const messages = [systemMessage, userMessage];
   let response;
 
   if (aiConfig.mode === "openai") {
@@ -247,12 +241,33 @@ async function requestRoutineFromAi(selectedProductsData) {
   throw new Error("AI response format was not recognized.");
 }
 
-/* Convert AI output into safe, readable paragraph HTML */
-function formatRoutineTextAsHtml(text) {
-  const escapedText = text
+/* Build and request the initial routine */
+async function requestRoutineFromAi(selectedProductsData) {
+  const systemMessage = {
+    role: "system",
+    content:
+      "You are a friendly skincare and beauty routine assistant.Use umojis where applicable in a human-like fashion.Build routines using only products provided by the user. Do not invent or add products not included in the provided JSON. Do not answer non beauty/skincare related questions on clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products.",
+  };
+
+  const userMessage = {
+    role: "user",
+    content: `Create a simple daily routine using ONLY these selected products.\n\nSelected products JSON:\n${JSON.stringify(selectedProductsData, null, 2)}\n\nReturn a beginner-friendly routine with sections for Morning, Evening, and Why this order works.`,
+  };
+
+  return requestAiResponse([systemMessage, userMessage], selectedProductsData);
+}
+
+/* Escape plain text before rendering HTML */
+function escapeHtml(value) {
+  return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+/* Convert AI output into safe, readable paragraph HTML */
+function formatRoutineTextAsHtml(text) {
+  const escapedText = escapeHtml(text);
 
   const formatInline = (value) =>
     value.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
@@ -318,6 +333,45 @@ function formatRoutineTextAsHtml(text) {
   closeList();
 
   return htmlParts.join("");
+}
+
+/* Render routine + follow-up chat thread */
+function renderChatWindow() {
+  const sections = [];
+
+  if (currentRoutineText) {
+    sections.push(
+      `<div class="routine-output">${formatRoutineTextAsHtml(currentRoutineText)}</div>`,
+    );
+  }
+
+  if (followUpThread.length > 0 || isThinking) {
+    const messagesHtml = followUpThread
+      .map((message) => {
+        if (message.role === "user") {
+          const userHtml = escapeHtml(message.content).replaceAll("\n", "<br>");
+          return `<div class="chat-bubble user"><p>${userHtml}</p></div>`;
+        }
+
+        return `<div class="chat-bubble ai">${formatRoutineTextAsHtml(message.content)}</div>`;
+      })
+      .join("");
+
+    const thinkingHtml = isThinking
+      ? '<div class="chat-bubble ai thinking"><p>Thinking...</p></div>'
+      : "";
+
+    if (currentRoutineText) {
+      sections.push('<hr class="chat-divider">');
+    }
+
+    sections.push(
+      `<div class="chat-thread">${messagesHtml}${thinkingHtml}</div>`,
+    );
+  }
+
+  chatWindow.innerHTML = sections.join("");
+  chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
 /* Return safe, user-friendly chat errors */
@@ -406,10 +460,12 @@ function saveRoutine(routineText, selectedProductsData) {
     title,
     products: productNames,
     routineText,
+    thread: [],
   };
 
   const updated = [newRoutine, ...savedRoutines].slice(0, MAX_SAVED_ROUTINES);
   setSavedRoutines(updated);
+  currentRoutineId = newRoutine.id;
   renderSavedRoutines();
 }
 
@@ -428,17 +484,36 @@ function renderSavedRoutines() {
     .map((routine) => {
       const formattedDate = new Date(routine.createdAt).toLocaleString();
       return `
-        <button type="button" class="saved-routine-item" data-saved-routine-id="${routine.id}">
-          <strong>${routine.title}</strong>
-          <span>${formattedDate}</span>
-        </button>
+        <div class="saved-routine-item-wrapper">
+          <button type="button" class="saved-routine-item" data-saved-routine-id="${routine.id}">
+            <strong>${routine.title}</strong>
+            <span>${formattedDate}</span>
+          </button>
+          <button type="button" class="delete-routine-btn" data-delete-routine-id="${routine.id}" aria-label="Delete routine">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
       `;
     })
     .join("");
 }
 
-/* Open a saved routine in the chat window */
+/* Open or delete a saved routine */
 savedRoutinesList.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest(".delete-routine-btn");
+
+  if (deleteButton) {
+    event.stopPropagation();
+    const routineId = Number(deleteButton.dataset.deleteRoutineId);
+    const savedRoutines = getSavedRoutines();
+    const filteredRoutines = savedRoutines.filter(
+      (routine) => routine.id !== routineId,
+    );
+    setSavedRoutines(filteredRoutines);
+    renderSavedRoutines();
+    return;
+  }
+
   const savedRoutineButton = event.target.closest("[data-saved-routine-id]");
 
   if (!savedRoutineButton) {
@@ -456,11 +531,22 @@ savedRoutinesList.addEventListener("click", (event) => {
     return;
   }
 
-  chatWindow.innerHTML = formatRoutineTextAsHtml(selectedRoutine.routineText);
+  currentRoutineText = selectedRoutine.routineText;
+  currentRoutineId = selectedRoutine.id;
+  followUpThread = selectedRoutine.thread || [];
+  isThinking = false;
+  renderChatWindow();
 });
 
 /* Generate routine from selected products only */
 generateRoutineButton.addEventListener("click", async () => {
+  const savedRoutines = getSavedRoutines();
+
+  if (savedRoutines.length >= MAX_SAVED_ROUTINES) {
+    chatWindow.innerHTML = `<p style="color: #d9534f; font-weight: 500;">You have reached the maximum of ${MAX_SAVED_ROUTINES} saved routines. Please delete a routine before generating a new one.</p>`;
+    return;
+  }
+
   const selectedProductsData = getSelectedProductsForPrompt();
 
   if (selectedProductsData.length === 0) {
@@ -470,19 +556,102 @@ generateRoutineButton.addEventListener("click", async () => {
 
   generateRoutineButton.disabled = true;
   generateRoutineButton.textContent = "Generating...";
-  chatWindow.innerHTML = "Building your routine from selected products...";
+  currentRoutineText = "";
+  followUpThread = [];
+  currentRoutineId = null;
+  renderChatWindow();
 
   try {
     const routineText = await requestRoutineFromAi(selectedProductsData);
-    chatWindow.innerHTML = formatRoutineTextAsHtml(routineText);
+    currentRoutineText = routineText;
     saveRoutine(routineText, selectedProductsData);
   } catch (error) {
     console.error("Routine generation failed:", error);
-    chatWindow.textContent = getConsumerErrorMessage();
+    followUpThread = [
+      {
+        role: "assistant",
+        content: getConsumerErrorMessage(),
+      },
+    ];
   } finally {
+    renderChatWindow();
     generateRoutineButton.disabled = false;
     generateRoutineButton.innerHTML =
       '<i class="fa-solid fa-wand-magic-sparkles"></i> Generate Routine';
+  }
+});
+
+/* Follow-up chat submission */
+chatForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const userMessageText = userInput.value.trim();
+
+  if (!userMessageText) {
+    return;
+  }
+
+  const selectedProductsData = getSelectedProductsForPrompt();
+
+  if (!currentRoutineText && selectedProductsData.length === 0) {
+    chatWindow.textContent = "Select products and generate a routine first.";
+    return;
+  }
+
+  followUpThread.push({
+    role: "user",
+    content: userMessageText,
+  });
+  userInput.value = "";
+  isThinking = true;
+  renderChatWindow();
+
+  try {
+    const systemMessage = {
+      role: "system",
+      content:
+        "You are a friendly skincare and beauty routine assistant. Answer follow-up questions using the selected products and existing routine context. Keep answers concise and beginner-friendly.",
+    };
+
+    const contextMessage = {
+      role: "user",
+      content: `Context:\nSelected products JSON:\n${JSON.stringify(selectedProductsData, null, 2)}\n\nCurrent routine:\n${currentRoutineText || "No routine generated yet."}`,
+    };
+
+    const historyMessages = followUpThread.map((message) => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: message.content,
+    }));
+
+    const aiReply = await requestAiResponse(
+      [systemMessage, contextMessage, ...historyMessages],
+      selectedProductsData,
+    );
+
+    followUpThread.push({
+      role: "assistant",
+      content: aiReply,
+    });
+
+    if (currentRoutineId !== null) {
+      const savedRoutines = getSavedRoutines();
+      const updatedRoutines = savedRoutines.map((routine) => {
+        if (routine.id === currentRoutineId) {
+          return { ...routine, thread: followUpThread };
+        }
+        return routine;
+      });
+      setSavedRoutines(updatedRoutines);
+    }
+  } catch (error) {
+    console.error("Follow-up request failed:", error);
+    followUpThread.push({
+      role: "assistant",
+      content: getConsumerErrorMessage(),
+    });
+  } finally {
+    isThinking = false;
+    renderChatWindow();
   }
 });
 
@@ -536,6 +705,20 @@ function toggleProductSelection(productId) {
 
   saveSelectedProducts();
 
+  renderSelectedProducts();
+
+  if (categoryFilter.value) {
+    const filteredProducts = allProducts.filter(
+      (item) => item.category === categoryFilter.value,
+    );
+    displayProducts(filteredProducts);
+  }
+}
+
+/* Clear all selected products */
+function clearAllSelectedProducts() {
+  selectedProducts.clear();
+  saveSelectedProducts();
   renderSelectedProducts();
 
   if (categoryFilter.value) {
@@ -600,17 +783,18 @@ categoryFilter.addEventListener("change", async (e) => {
   displayProducts(filteredProducts);
 });
 
+/* Clear all selected products button handler */
+clearAllProductsButton.addEventListener("click", () => {
+  if (selectedProducts.size > 0) {
+    clearAllSelectedProducts();
+  }
+});
+
 /* Load products and prepare the initial selected state */
 loadProducts().then(() => {
   initializeProductModal();
   restoreSelectedProducts();
   renderSelectedProducts();
   renderSavedRoutines();
-});
-
-/* Chat form submission handler - placeholder for OpenAI integration */
-chatForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-
-  chatWindow.innerHTML = "Connect to the OpenAI API for a response!";
+  renderChatWindow();
 });
