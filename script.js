@@ -254,19 +254,70 @@ function formatRoutineTextAsHtml(text) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 
-  const paragraphs = escapedText
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0)
-    .map((paragraph) => {
-      const withBold = paragraph.replace(
-        /\*\*(.+?)\*\*/g,
-        "<strong>$1</strong>",
-      );
-      return `<p>${withBold.replaceAll("\n", "<br>")}</p>`;
-    });
+  const formatInline = (value) =>
+    value.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 
-  return paragraphs.join("");
+  const lines = escapedText.split("\n");
+  const htmlParts = [];
+  let paragraphLines = [];
+  let inList = false;
+
+  const closeParagraph = () => {
+    if (paragraphLines.length === 0) {
+      return;
+    }
+
+    htmlParts.push(`<p>${paragraphLines.join("<br>")}</p>`);
+    paragraphLines = [];
+  };
+
+  const closeList = () => {
+    if (!inList) {
+      return;
+    }
+
+    htmlParts.push("</ul>");
+    inList = false;
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+
+    if (!line) {
+      closeParagraph();
+      closeList();
+      return;
+    }
+
+    if (line.startsWith("### ")) {
+      closeParagraph();
+      closeList();
+      htmlParts.push(`<h3>${formatInline(line.slice(4).trim())}</h3>`);
+      return;
+    }
+
+    const listItemMatch = line.match(/^-\s+(.+)/);
+
+    if (listItemMatch) {
+      closeParagraph();
+
+      if (!inList) {
+        htmlParts.push('<ul class="routine-list">');
+        inList = true;
+      }
+
+      htmlParts.push(`<li>${formatInline(listItemMatch[1])}</li>`);
+      return;
+    }
+
+    closeList();
+    paragraphLines.push(formatInline(line));
+  });
+
+  closeParagraph();
+  closeList();
+
+  return htmlParts.join("");
 }
 
 /* Return safe, user-friendly chat errors */
