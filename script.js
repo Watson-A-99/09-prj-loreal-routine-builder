@@ -11,6 +11,7 @@ let allProducts = [];
 const selectedProducts = new Map();
 let activeModalProductId = null;
 const SAVED_ROUTINES_KEY = "lorealSavedRoutines";
+const SELECTED_PRODUCTS_KEY = "lorealSelectedProductIds";
 const MAX_SAVED_ROUTINES = 10;
 
 /* Show initial placeholder until user selects a category */
@@ -192,7 +193,7 @@ async function requestRoutineFromAi(selectedProductsData) {
   const systemMessage = {
     role: "system",
     content:
-      "You are a skincare and beauty routine assistant. Build routines using only products provided by the user. Do not invent or add products not included in the provided JSON.",
+      "You are a friendly skincare and beauty routine assistant. Use emojis where applicable. Number the steps for the user. Build routines using only products provided by the user. Do not invent or add products not included in the provided JSON. If a user asks for a product not in the JSON, respond with 'I can only create routines using the products you've selected.' do not answer anything not beauty related,and guid ehe user back on track'",
   };
 
   const userMessage = {
@@ -257,7 +258,13 @@ function formatRoutineTextAsHtml(text) {
     .split(/\n\s*\n/)
     .map((paragraph) => paragraph.trim())
     .filter((paragraph) => paragraph.length > 0)
-    .map((paragraph) => `<p>${paragraph.replaceAll("\n", "<br>")}</p>`);
+    .map((paragraph) => {
+      const withBold = paragraph.replace(
+        /\*\*(.+?)\*\*/g,
+        "<strong>$1</strong>",
+      );
+      return `<p>${withBold.replaceAll("\n", "<br>")}</p>`;
+    });
 
   return paragraphs.join("");
 }
@@ -266,6 +273,140 @@ function formatRoutineTextAsHtml(text) {
 function getConsumerErrorMessage() {
   return "We couldn't generate your routine right now. Please try again in a moment.";
 }
+
+/* Read saved routines from localStorage */
+function getSavedRoutines() {
+  try {
+    const saved = localStorage.getItem(SAVED_ROUTINES_KEY);
+
+    if (!saved) {
+      return [];
+    }
+
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error("Failed to read saved routines:", error);
+    return [];
+  }
+}
+
+/* Save routine list to localStorage */
+function setSavedRoutines(routines) {
+  try {
+    localStorage.setItem(SAVED_ROUTINES_KEY, JSON.stringify(routines));
+  } catch (error) {
+    console.error("Failed to save routines:", error);
+  }
+}
+
+/* Save selected product IDs to localStorage */
+function saveSelectedProducts() {
+  try {
+    const selectedIds = Array.from(selectedProducts.keys());
+    localStorage.setItem(SELECTED_PRODUCTS_KEY, JSON.stringify(selectedIds));
+  } catch (error) {
+    console.error("Failed to save selected products:", error);
+  }
+}
+
+/* Restore selected products from localStorage */
+function restoreSelectedProducts() {
+  try {
+    const savedIdsText = localStorage.getItem(SELECTED_PRODUCTS_KEY);
+
+    if (!savedIdsText) {
+      return;
+    }
+
+    const savedIds = JSON.parse(savedIdsText);
+
+    if (!Array.isArray(savedIds)) {
+      return;
+    }
+
+    selectedProducts.clear();
+
+    savedIds.forEach((id) => {
+      const productId = Number(id);
+      const product = allProducts.find((item) => item.id === productId);
+
+      if (product) {
+        selectedProducts.set(productId, product);
+      }
+    });
+  } catch (error) {
+    console.error("Failed to restore selected products:", error);
+  }
+}
+
+/* Create one saved routine record */
+function saveRoutine(routineText, selectedProductsData) {
+  const savedRoutines = getSavedRoutines();
+  const productNames = selectedProductsData.map((product) => product.name);
+  const summary = productNames.slice(0, 2).join(" + ");
+  const extraCount = Math.max(productNames.length - 2, 0);
+  const title =
+    extraCount > 0 ? `${summary} + ${extraCount} more` : summary || "Routine";
+
+  const newRoutine = {
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    title,
+    products: productNames,
+    routineText,
+  };
+
+  const updated = [newRoutine, ...savedRoutines].slice(0, MAX_SAVED_ROUTINES);
+  setSavedRoutines(updated);
+  renderSavedRoutines();
+}
+
+/* Render local saved routines list */
+function renderSavedRoutines() {
+  const savedRoutines = getSavedRoutines();
+
+  if (savedRoutines.length === 0) {
+    savedRoutinesList.innerHTML = `
+      <p class="saved-routines-empty">No saved routines yet.</p>
+    `;
+    return;
+  }
+
+  savedRoutinesList.innerHTML = savedRoutines
+    .map((routine) => {
+      const formattedDate = new Date(routine.createdAt).toLocaleString();
+      return `
+        <button type="button" class="saved-routine-item" data-saved-routine-id="${routine.id}">
+          <strong>${routine.title}</strong>
+          <span>${formattedDate}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+/* Open a saved routine in the chat window */
+savedRoutinesList.addEventListener("click", (event) => {
+  const savedRoutineButton = event.target.closest("[data-saved-routine-id]");
+
+  if (!savedRoutineButton) {
+    return;
+  }
+
+  const selectedId = Number(savedRoutineButton.dataset.savedRoutineId);
+  const savedRoutines = getSavedRoutines();
+  const selectedRoutine = savedRoutines.find(
+    (routine) => routine.id === selectedId,
+  );
+
+  if (!selectedRoutine) {
+    chatWindow.textContent = "That saved routine could not be found.";
+    return;
+  }
+
+  chatWindow.innerHTML = formatRoutineTextAsHtml(selectedRoutine.routineText);
+});
 
 /* Generate routine from selected products only */
 generateRoutineButton.addEventListener("click", async () => {
@@ -283,6 +424,7 @@ generateRoutineButton.addEventListener("click", async () => {
   try {
     const routineText = await requestRoutineFromAi(selectedProductsData);
     chatWindow.innerHTML = formatRoutineTextAsHtml(routineText);
+    saveRoutine(routineText, selectedProductsData);
   } catch (error) {
     console.error("Routine generation failed:", error);
     chatWindow.textContent = getConsumerErrorMessage();
@@ -341,6 +483,8 @@ function toggleProductSelection(productId) {
     selectedProducts.set(productId, product);
   }
 
+  saveSelectedProducts();
+
   renderSelectedProducts();
 
   if (categoryFilter.value) {
@@ -380,6 +524,7 @@ selectedProductsList.addEventListener("click", (event) => {
 
   const productId = Number(removeButton.dataset.removeProductId);
   selectedProducts.delete(productId);
+  saveSelectedProducts();
   renderSelectedProducts();
 
   if (categoryFilter.value) {
@@ -407,7 +552,9 @@ categoryFilter.addEventListener("change", async (e) => {
 /* Load products and prepare the initial selected state */
 loadProducts().then(() => {
   initializeProductModal();
+  restoreSelectedProducts();
   renderSelectedProducts();
+  renderSavedRoutines();
 });
 
 /* Chat form submission handler - placeholder for OpenAI integration */
