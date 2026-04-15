@@ -25,6 +25,27 @@
 
       <!-- Category Filter -->
       <div class="search-section">
+        <label for="productSearch" class="visually-hidden"
+          >Search products by name or keyword</label
+        >
+        <div class="search-input-wrapper">
+          <input
+            id="productSearch"
+            type="search"
+            placeholder="Search products by name or keyword"
+            autocomplete="off"
+          />
+          <button
+            type="button"
+            id="clearSearch"
+            class="clear-search-btn"
+            aria-label="Clear product search"
+            title="Clear search"
+            hidden
+          >
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
         <select id="categoryFilter">
           <option value="" disabled selected>Choose a Category</option>
           <option value="cleanser">Cleansers</option>

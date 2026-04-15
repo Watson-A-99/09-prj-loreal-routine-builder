@@ -13,6 +13,10 @@ body {
   justify-content: center;
 }
 
+:root {
+  --logo-color-filter: brightness(0) invert(1);
+}
+
 .page-wrapper {
   width: 90%;
   max-width: 900px;
@@ -20,26 +24,110 @@ body {
 
 /* header */
 .site-header {
+  position: relative;
+  overflow: hidden;
   text-align: center;
-  padding-top: 50px;
-  padding-bottom: 10px;
+  padding: 50px 20px 24px;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  border-radius: 0;
+  background-image:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.45)),
+    url("img/Gemini_Generated_Image_2yt8zw2yt8zw2yt8.png");
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 10px 26px rgba(62, 19, 19, 0.644);
 }
 
 .logo {
+  position: relative;
+  z-index: 1;
   width: 250px;
   margin-bottom: 15px;
+  filter: var(--logo-color-filter) drop-shadow(0 6px 14px rgba(0, 0, 0, 0.3));
 }
 
 .site-title {
+  position: relative;
+  z-index: 1;
   font-size: 22px;
   font-weight: 500;
   margin-bottom: 10px;
+  color: #fff;
+  text-shadow: 0 4px 14px rgba(0, 0, 0, 0.72);
+}
+
+@media (max-width: 768px) {
+  .site-header {
+    padding: 36px 16px 20px;
+  }
+
+  .logo {
+    width: 210px;
+  }
+
+  .site-title {
+    font-size: 20px;
+  }
 }
 
 /* category filter */
 .search-section {
-  margin: 30px 0;
+  margin: 70px 0 0 0;
   display: flex;
+  gap: 12px;
+}
+
+.search-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.search-section input {
+  width: 100%;
+  padding: 16px;
+  padding-right: 52px;
+  font-size: 18px;
+  border: 2px solid #000;
+  border-radius: 8px;
+  background-color: white;
+  font-weight: 500;
+}
+
+.search-section input:focus {
+  outline: none;
+  border-color: #666;
+}
+
+.clear-search-btn {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border: 1px solid #bbb;
+  border-radius: 999px;
+  background: #fff;
+  color: #222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.clear-search-btn:hover {
+  border-color: #222;
+  color: #000;
+}
+
+.clear-search-btn:focus-visible {
+  outline: 2px solid #000;
+  outline-offset: 1px;
 }
 
 .search-section select {
@@ -56,6 +144,12 @@ body {
 .search-section select:focus {
   outline: none;
   border-color: #666;
+}
+
+@media (max-width: 768px) {
+  .search-section {
+    flex-direction: column;
+  }
 }
 
 /* chat section */

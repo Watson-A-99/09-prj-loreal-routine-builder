@@ -1,5 +1,7 @@
 /* Get references to DOM elements */
 const categoryFilter = document.getElementById("categoryFilter");
+const productSearch = document.getElementById("productSearch");
+const clearSearchButton = document.getElementById("clearSearch");
 const productsContainer = document.getElementById("productsContainer");
 const selectedProductsList = document.getElementById("selectedProductsList");
 const generateRoutineButton = document.getElementById("generateRoutine");
@@ -39,7 +41,7 @@ function getReasoningEffort() {
 /* Show initial placeholder until user selects a category */
 productsContainer.innerHTML = `
   <div class="placeholder-message">
-    Select a category to view products
+    Select a category or type a search to view products
   </div>
 `;
 
@@ -57,6 +59,15 @@ async function loadProducts() {
 
 /* Create HTML for displaying product cards */
 function displayProducts(products) {
+  if (products.length === 0) {
+    productsContainer.innerHTML = `
+      <div class="placeholder-message">
+        No products match your current filters.
+      </div>
+    `;
+    return;
+  }
+
   productsContainer.innerHTML = products
     .map(
       (product) => `
@@ -73,6 +84,41 @@ function displayProducts(products) {
   `,
     )
     .join("");
+}
+
+function applyProductFilters() {
+  const selectedCategory = categoryFilter.value;
+  const searchTerm = productSearch.value.trim().toLowerCase();
+
+  if (!selectedCategory && !searchTerm) {
+    productsContainer.innerHTML = `
+      <div class="placeholder-message">
+        Select a category or type a search to view products
+      </div>
+    `;
+    return;
+  }
+
+  const filteredProducts = allProducts.filter((product) => {
+    const matchesCategory =
+      !selectedCategory || product.category === selectedCategory;
+
+    const searchableText =
+      `${product.name} ${product.brand} ${product.category}`.toLowerCase();
+    const matchesSearch = !searchTerm || searchableText.includes(searchTerm);
+
+    return matchesCategory && matchesSearch;
+  });
+
+  displayProducts(filteredProducts);
+}
+
+function updateClearSearchButtonVisibility() {
+  if (!clearSearchButton) {
+    return;
+  }
+
+  clearSearchButton.hidden = productSearch.value.trim() === "";
 }
 
 /* Create modal once and reuse it for product details */
@@ -840,13 +886,7 @@ function toggleProductSelection(productId) {
   saveSelectedProducts();
 
   renderSelectedProducts();
-
-  if (categoryFilter.value) {
-    const filteredProducts = allProducts.filter(
-      (item) => item.category === categoryFilter.value,
-    );
-    displayProducts(filteredProducts);
-  }
+  applyProductFilters();
 }
 
 /* Clear all selected products */
@@ -854,13 +894,7 @@ function clearAllSelectedProducts() {
   selectedProducts.clear();
   saveSelectedProducts();
   renderSelectedProducts();
-
-  if (categoryFilter.value) {
-    const filteredProducts = allProducts.filter(
-      (item) => item.category === categoryFilter.value,
-    );
-    displayProducts(filteredProducts);
-  }
+  applyProductFilters();
 }
 
 /* Keep the selected list and the product grid connected */
@@ -894,27 +928,25 @@ selectedProductsList.addEventListener("click", (event) => {
   selectedProducts.delete(productId);
   saveSelectedProducts();
   renderSelectedProducts();
-
-  if (categoryFilter.value) {
-    const filteredProducts = allProducts.filter(
-      (item) => item.category === categoryFilter.value,
-    );
-    displayProducts(filteredProducts);
-  }
+  applyProductFilters();
 });
 
 /* Filter and display products when category changes */
-categoryFilter.addEventListener("change", async (e) => {
-  const products = await loadProducts();
-  const selectedCategory = e.target.value;
+categoryFilter.addEventListener("change", () => {
+  applyProductFilters();
+});
 
-  /* filter() creates a new array containing only products 
-     where the category matches what the user selected */
-  const filteredProducts = products.filter(
-    (product) => product.category === selectedCategory,
-  );
+/* Filter and display products when search changes */
+productSearch.addEventListener("input", () => {
+  updateClearSearchButtonVisibility();
+  applyProductFilters();
+});
 
-  displayProducts(filteredProducts);
+clearSearchButton.addEventListener("click", () => {
+  productSearch.value = "";
+  updateClearSearchButtonVisibility();
+  applyProductFilters();
+  productSearch.focus();
 });
 
 /* Clear all selected products button handler */
@@ -929,6 +961,8 @@ loadProducts().then(() => {
   initializeProductModal();
   restoreSelectedProducts();
   renderSelectedProducts();
+  updateClearSearchButtonVisibility();
+  applyProductFilters();
   renderSavedRoutines();
   renderChatWindow();
 });
