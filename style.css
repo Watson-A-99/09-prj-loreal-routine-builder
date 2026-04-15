@@ -121,8 +121,8 @@ body {
 }
 
 .clear-search-btn:hover {
-  border-color: #222;
-  color: #000;
+  border-color: #ff003b;
+  color: #ff003b;
 }
 
 .clear-search-btn:focus-visible {
@@ -249,7 +249,7 @@ body {
 }
 
 .routine-output a {
-  color: #0a66c2;
+  color: #ff003b;
   text-decoration: underline;
 }
 
