@@ -19,6 +19,8 @@ const SELECTED_PRODUCTS_KEY = "lorealSelectedProductIds";
 const MAX_SAVED_ROUTINES = 5;
 const OPENAI_MODEL = "gpt-5-mini";
 const OPENAI_REASONING_EFFORT = "low";
+window.CLOUDFLARE_WORKER_URL =
+  "https://openai-api-worker.aimee-watson642.workers.dev";
 let currentRoutineText = "";
 let followUpThread = [];
 let isThinking = false;
@@ -248,6 +250,102 @@ function getAiConfig() {
   return null;
 }
 
+/* Extract readable text from common OpenAI and Worker response shapes */
+function extractAiText(data) {
+  if (!data) {
+    return "";
+  }
+
+  if (typeof data === "string") {
+    return data.trim();
+  }
+
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  if (Array.isArray(data.output)) {
+    const textParts = data.output
+      .flatMap((item) => item.content || [])
+      .filter(
+        (item) =>
+          (item.type === "output_text" || item.type === "text") &&
+          typeof item.text === "string",
+      )
+      .map((item) => item.text);
+
+    if (textParts.length > 0) {
+      return textParts.join("").trim();
+    }
+  }
+
+  if (Array.isArray(data.choices) && data.choices[0]?.message) {
+    const messageContent = data.choices[0].message.content;
+
+    if (typeof messageContent === "string" && messageContent.trim()) {
+      return messageContent.trim();
+    }
+
+    if (Array.isArray(messageContent)) {
+      const parts = messageContent
+        .map((item) => {
+          if (typeof item === "string") {
+            return item;
+          }
+
+          if (typeof item?.text === "string") {
+            return item.text;
+          }
+
+          return "";
+        })
+        .filter(Boolean);
+
+      if (parts.length > 0) {
+        return parts.join("").trim();
+      }
+    }
+  }
+
+  if (typeof data.message === "string" && data.message.trim()) {
+    return data.message.trim();
+  }
+
+  if (typeof data.content === "string" && data.content.trim()) {
+    return data.content.trim();
+  }
+
+  if (typeof data.text === "string" && data.text.trim()) {
+    return data.text.trim();
+  }
+
+  if (typeof data.answer === "string" && data.answer.trim()) {
+    return data.answer.trim();
+  }
+
+  if (data.response && typeof data.response === "object") {
+    const nestedResponseText = extractAiText(data.response);
+
+    if (nestedResponseText) {
+      return nestedResponseText;
+    }
+  }
+
+  if (data.result && typeof data.result === "object") {
+    const nestedResultText = extractAiText(data.result);
+
+    if (nestedResultText) {
+      return nestedResultText;
+    }
+  }
+
+  if (typeof data.output === "string" && data.output.trim()) {
+    return data.output.trim();
+  }
+
+  return "";
+}
+
 /* Call AI and return text response */
 async function requestAiResponse(messages, selectedProductsData, options = {}) {
   const { useWebSearch = false } = options;
@@ -293,6 +391,7 @@ async function requestAiResponse(messages, selectedProductsData, options = {}) {
         model: OPENAI_MODEL,
         messages,
         selectedProducts: selectedProductsData,
+        useWebSearch,
         reasoning: {
           effort: reasoningEffort,
         },
@@ -318,29 +417,14 @@ async function requestAiResponse(messages, selectedProductsData, options = {}) {
 
   const data = await response.json();
 
-  if (typeof data.output_text === "string" && data.output_text.trim()) {
-    return data.output_text;
+  if (data?.error?.message) {
+    throw new Error(`AI request failed: ${data.error.message}`);
   }
 
-  if (Array.isArray(data.output)) {
-    const textParts = data.output
-      .flatMap((item) => item.content || [])
-      .filter(
-        (item) => item.type === "output_text" && typeof item.text === "string",
-      )
-      .map((item) => item.text);
+  const aiText = extractAiText(data);
 
-    if (textParts.length > 0) {
-      return textParts.join("");
-    }
-  }
-
-  if (data.choices && data.choices[0] && data.choices[0].message) {
-    return data.choices[0].message.content;
-  }
-
-  if (data.output) {
-    return data.output;
+  if (aiText) {
+    return aiText;
   }
 
   throw new Error("AI response format was not recognized.");
@@ -351,7 +435,7 @@ async function requestRoutineFromAi(selectedProductsData) {
   const systemMessage = {
     role: "system",
     content:
-      "You are a friendly skincare and beauty routine assistant. Use emojis where applicable in a human-like fashion. Build skincare and makeup routines from selected products. Do not diplay  json IDs. Use web search for approximate product pricing. Do not invent or add products not included in the provided JSON. Do not answer non beauty/skincare related questions on clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products. No redundant information",
+      "You are a friendly skincare and beauty routine assistant who offers beauty advice. Use emojis where applicable in a human-like fashion. Build skincare and makeup routines from selected products. Do not diplay  json IDs. Use web search for approximate product pricing. Do not invent or add products not included in the provided JSON. Do not answer non beauty/skincare related questions on clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products. Ask follow up questions about the user such as skin type or sconcerns. Don't offer users printables or PDFs. No redundant information",
   };
 
   const userMessage = {
