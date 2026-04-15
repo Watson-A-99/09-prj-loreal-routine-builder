@@ -78,6 +78,8 @@ body {
   height: 500px;
   overflow-y: auto;
   background: #fafafa;
+  border: 1px solid #a2a2a2;
+  border-radius: 8px;
   margin-bottom: 20px;
 }
 
@@ -318,7 +320,7 @@ body {
 }
 
 .chat-form button:hover {
-  background: #666666;
+  background: #e3a535;
 }
 
 .chat-form button:focus {

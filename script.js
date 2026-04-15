@@ -15,12 +15,26 @@ let activeModalProductId = null;
 const SAVED_ROUTINES_KEY = "lorealSavedRoutines";
 const SELECTED_PRODUCTS_KEY = "lorealSelectedProductIds";
 const MAX_SAVED_ROUTINES = 5;
+const OPENAI_MODEL = "gpt-5-mini";
+const OPENAI_REASONING_EFFORT = "low";
 let currentRoutineText = "";
 let followUpThread = [];
 let isThinking = false;
 let currentRoutineId = null;
 let routineGenerationStatusText = "";
 let routineStatusIntervalId = null;
+
+function getReasoningEffort() {
+  const allowedValues = ["low", "medium", "high"];
+  const configuredValue =
+    window.OPENAI_REASONING_EFFORT || OPENAI_REASONING_EFFORT;
+
+  if (allowedValues.includes(configuredValue)) {
+    return configuredValue;
+  }
+
+  return "low";
+}
 
 /* Show initial placeholder until user selects a category */
 productsContainer.innerHTML = `
@@ -189,8 +203,10 @@ function getAiConfig() {
 }
 
 /* Call AI and return text response */
-async function requestAiResponse(messages, selectedProductsData) {
+async function requestAiResponse(messages, selectedProductsData, options = {}) {
+  const { useWebSearch = false } = options;
   const aiConfig = getAiConfig();
+  const reasoningEffort = getReasoningEffort();
 
   if (!aiConfig) {
     throw new Error(
@@ -201,17 +217,25 @@ async function requestAiResponse(messages, selectedProductsData) {
   let response;
 
   if (aiConfig.mode === "openai") {
+    const requestBody = {
+      model: OPENAI_MODEL,
+      input: messages,
+      reasoning: {
+        effort: reasoningEffort,
+      },
+    };
+
+    if (useWebSearch) {
+      requestBody.tools = [{ type: "web_search" }];
+    }
+
     response = await fetch(aiConfig.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${aiConfig.apiKey}`,
       },
-      body: JSON.stringify({
-        model: "gpt-5-mini",
-        tools: [{ type: "web_search" }],
-        input: messages,
-      }),
+      body: JSON.stringify(requestBody),
     });
   } else {
     response = await fetch(aiConfig.url, {
@@ -220,9 +244,13 @@ async function requestAiResponse(messages, selectedProductsData) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: OPENAI_MODEL,
         messages,
         selectedProducts: selectedProductsData,
+        reasoning: {
+          effort: reasoningEffort,
+        },
+        reasoningEffort,
       }),
     });
   }
@@ -277,7 +305,7 @@ async function requestRoutineFromAi(selectedProductsData) {
   const systemMessage = {
     role: "system",
     content:
-      "You are a friendly skincare and beauty routine assistant. Use emojis where applicable in a human-like fashion. Build routines using only products provided by the user. Use web search for approximate product pricing. Do not invent or add products not included in the provided JSON. Do not answer non beauty/skincare related questions on clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products. No redundant information",
+      "You are a friendly skincare and beauty routine assistant. Use emojis where applicable in a human-like fashion. Build skincare and makeup routines from selected products. Do not diplay  json IDs. Use web search for approximate product pricing. Do not invent or add products not included in the provided JSON. Do not answer non beauty/skincare related questions on clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products. No redundant information",
   };
 
   const userMessage = {
@@ -285,7 +313,9 @@ async function requestRoutineFromAi(selectedProductsData) {
     content: `Create a simple daily routine using ONLY these selected products.\n\nSelected products JSON:\n${JSON.stringify(selectedProductsData, null, 2)}\n\nUse web search to verify current product details, price estimates if available, and any important up-to-date guidance. Return a beginner-friendly routine and explainWhy this order works,`,
   };
 
-  return requestAiResponse([systemMessage, userMessage], selectedProductsData);
+  return requestAiResponse([systemMessage, userMessage], selectedProductsData, {
+    useWebSearch: true,
+  });
 }
 
 /* Escape plain text before rendering HTML */
@@ -464,7 +494,7 @@ function startRoutineGenerationStatus() {
     messageIndex = (messageIndex + 1) % statusMessages.length;
     routineGenerationStatusText = statusMessages[messageIndex];
     renderChatWindow();
-  }, 5000);
+  }, 7000);
 }
 
 function stopRoutineGenerationStatus() {
@@ -713,7 +743,7 @@ chatForm.addEventListener("submit", async (e) => {
     const systemMessage = {
       role: "system",
       content:
-        "You are a friendly skincare and beauty routine assistant. Answer follow-up questions using the selected products, existing routine context, and web search for current product or routine information when helpful. Keep answers concise and beginner-friendly.",
+        "You are a friendly skincare and beauty routine assistant. Use emojis in a human manner. Answer follow-up questions using only the selected products and existing active routine context. Keep answers concise and beginner-friendly. Do not answer non beauty/skincare related questions. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products. No redundant information.",
     };
 
     const contextMessage = {
@@ -729,6 +759,7 @@ chatForm.addEventListener("submit", async (e) => {
     const aiReply = await requestAiResponse(
       [systemMessage, contextMessage, ...historyMessages],
       selectedProductsData,
+      { useWebSearch: false },
     );
 
     followUpThread.push({
