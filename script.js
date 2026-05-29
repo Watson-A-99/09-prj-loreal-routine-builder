@@ -17,28 +17,14 @@ let activeModalProductId = null;
 const SAVED_ROUTINES_KEY = "lorealSavedRoutines";
 const SELECTED_PRODUCTS_KEY = "lorealSelectedProductIds";
 const MAX_SAVED_ROUTINES = 5;
-const OPENAI_MODEL = "gpt-5-mini";
-const OPENAI_REASONING_EFFORT = "low";
-window.CLOUDFLARE_WORKER_URL =
-  "https://openai-api-worker.aimee-watson642.workers.dev";
+const MISTRAL_MODEL = "mistral-large-latest";
+const DEFAULT_CLOUDFLARE_WORKER_URL = "";
 let currentRoutineText = "";
 let followUpThread = [];
 let isThinking = false;
 let currentRoutineId = null;
 let routineGenerationStatusText = "";
 let routineStatusIntervalId = null;
-
-function getReasoningEffort() {
-  const allowedValues = ["low", "medium", "high"];
-  const configuredValue =
-    window.OPENAI_REASONING_EFFORT || OPENAI_REASONING_EFFORT;
-
-  if (allowedValues.includes(configuredValue)) {
-    return configuredValue;
-  }
-
-  return "low";
-}
 
 /* Show initial placeholder until user selects a category */
 productsContainer.innerHTML = `
@@ -225,32 +211,33 @@ function getSelectedProductsForPrompt() {
 }
 
 /* Choose how requests are sent:
-   - Local testing: OpenAI API key from secrets.js
-   - Deployment: Cloudflare Worker endpoint */
+   - Public deployment: Cloudflare Worker URL
+   - Local testing: API key from secrets.js */
 function getAiConfig() {
-  const cloudflareWorkerUrl = window.CLOUDFLARE_WORKER_URL;
   const globalApiKey = typeof apiKey !== "undefined" ? apiKey : null;
-  const openAiApiKey = window.OPENAI_API_KEY || window.apiKey || globalApiKey;
+  const mistralApiKey = window.MISTRAL_API_KEY || window.apiKey || globalApiKey;
+  const cloudflareWorkerUrl =
+    window.CLOUDFLARE_WORKER_URL || DEFAULT_CLOUDFLARE_WORKER_URL;
 
   if (cloudflareWorkerUrl) {
     return {
-      mode: "cloudflare",
+      mode: "worker",
       url: cloudflareWorkerUrl,
     };
   }
 
-  if (openAiApiKey) {
+  if (mistralApiKey) {
     return {
-      mode: "openai",
-      url: "https://api.openai.com/v1/responses",
-      apiKey: openAiApiKey,
+      mode: "direct",
+      url: "https://api.mistral.ai/v1/chat/completions",
+      apiKey: mistralApiKey,
     };
   }
 
   return null;
 }
 
-/* Extract readable text from common OpenAI and Worker response shapes */
+/* Extract readable text from common Mistral and chat response shapes */
 function extractAiText(data) {
   if (!data) {
     return "";
@@ -350,55 +337,36 @@ function extractAiText(data) {
 async function requestAiResponse(messages, selectedProductsData, options = {}) {
   const { useWebSearch = false } = options;
   const aiConfig = getAiConfig();
-  const reasoningEffort = getReasoningEffort();
 
   if (!aiConfig) {
     throw new Error(
-      "No AI config found. Add OPENAI_API_KEY in secrets.js or set CLOUDFLARE_WORKER_URL for deployment.",
+      "No AI config found. Set CLOUDFLARE_WORKER_URL for public deployment or add MISTRAL_API_KEY in secrets.js for local testing.",
     );
   }
 
-  let response;
+  const requestBody = {
+    model: MISTRAL_MODEL,
+    messages,
+  };
 
-  if (aiConfig.mode === "openai") {
-    const requestBody = {
-      model: OPENAI_MODEL,
-      input: messages,
-      reasoning: {
-        effort: reasoningEffort,
-      },
-    };
-
-    if (useWebSearch) {
-      requestBody.tools = [{ type: "web_search" }];
-    }
-
-    response = await fetch(aiConfig.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${aiConfig.apiKey}`,
-      },
-      body: JSON.stringify(requestBody),
-    });
-  } else {
-    response = await fetch(aiConfig.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        messages,
-        selectedProducts: selectedProductsData,
-        useWebSearch,
-        reasoning: {
-          effort: reasoningEffort,
-        },
-        reasoningEffort,
-      }),
-    });
+  if (aiConfig.mode === "worker") {
+    requestBody.selectedProducts = selectedProductsData;
+    requestBody.useWebSearch = useWebSearch;
   }
+
+  const requestOptions = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  };
+
+  if (aiConfig.mode === "direct") {
+    requestOptions.headers.Authorization = `Bearer ${aiConfig.apiKey}`;
+  }
+
+  const response = await fetch(aiConfig.url, requestOptions);
 
   if (!response.ok) {
     let errorDetails = "";
@@ -435,12 +403,12 @@ async function requestRoutineFromAi(selectedProductsData) {
   const systemMessage = {
     role: "system",
     content:
-      "You are a friendly skincare and beauty routine assistant who offers beauty advice. Use emojis where applicable in a human-like fashion. Build skincare and makeup routines from selected products. Do not diplay  json IDs. Use web search for approximate product pricing. Do not invent or add products not included in the provided JSON. Do not answer non beauty/skincare related questions on clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products. Ask follow up questions about the user such as skin type or sconcerns. Don't offer users printables or PDFs. No redundant information",
+      "You are a friendly skincare and beauty routine assistant who offers beauty advice. Use emojis where applicable in a human-like fashion. Build skincare and makeup routines from selected products. Do not display JSON IDs. Do not invent or add products not included in the provided JSON. Do not answer non beauty or skincare related questions in clarifications. If the user asks about something not related to the products or routine, politely let them know you can only answer questions about the routine and products. Ask follow up questions about the user such as skin type or concerns. Don't offer users printables or PDFs. No redundant information.",
   };
 
   const userMessage = {
     role: "user",
-    content: `Create a simple daily routine using ONLY these selected products.\n\nSelected products JSON:\n${JSON.stringify(selectedProductsData, null, 2)}\n\nUse web search to verify current product details, price estimates if available, and any important up-to-date guidance. Return a beginner-friendly routine and explainWhy this order works,`,
+    content: `Create a simple daily routine using ONLY these selected products.\n\nSelected products JSON:\n${JSON.stringify(selectedProductsData, null, 2)}\n\nReturn a beginner-friendly routine and explain why this order works. If you mention prices or current guidance, keep it cautious and note that details can vary by retailer.`,
   };
 
   return requestAiResponse([systemMessage, userMessage], selectedProductsData, {

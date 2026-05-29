@@ -116,7 +116,8 @@
       </footer>
     </div>
 
-    <!-- secrets.js can be removed when using Cloudflare Workers for API requests -->
+    <!-- secrets.js is for local testing only; public deployments should use a Cloudflare Worker -->
+    <script src="config.js"></script>
     <script src="secrets.js"></script>
     <script src="script.js"></script>
   </body>
